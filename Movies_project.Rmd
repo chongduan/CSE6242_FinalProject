@@ -16,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Data
 
-In this project, I will explore a dataset that contains information about movies, including ratings, budget, gross revenue and other attributes. It was prepared by Dr. Guy Lebanon, and here is his description of the dataset:
+In this project, we will explore a dataset that contains information about movies, including ratings, budget, gross revenue and other attributes. It was prepared by Dr. Guy Lebanon, and here is his description of the dataset:
 
 > The file [`movies_merged`](https://s3.amazonaws.com/content.udacity-data.com/courses/gt-cs6242/project/movies_merged) contains a dataframe with the same name that has 40K rows and 39 columns. Each row represents a movie title and each column represents a descriptor such as `Title`, `Actors`, and `Budget`. I collected the data by querying IMDb’s API (see [www.omdbapi.com](http://www.omdbapi.com/)) and joining it with a separate dataset of movie budgets and gross earnings (unknown to you). The join key was the movie title. This data is available for personal use, but IMDb’s terms of service do not allow it to be used for commercial purposes or for creating a competing repository.
 
@@ -29,7 +29,7 @@ The goal is to investigate the relationship between the movie descriptors and th
 ## Load data
 Make sure you've downloaded the [`movies_merged`](https://s3.amazonaws.com/content.udacity-data.com/courses/gt-cs6242/project/movies_merged) file and it is in the current working directory. Now load it into memory:
 
-```{r}
+```{r, echo=TRUE}
 load('movies_merged')
 cat("Dataset has", dim(movies_merged)[1], "rows and", 
     dim(movies_merged)[2], "columns", end="\n", file="")
@@ -97,9 +97,9 @@ ggplot(data = df2, aes(x=Runtime)) +
 # bucket Year into Decades
 df2$YearInDecades = df2$Year - df2$Year %% 10 
 ggplot(data = df2, aes(x=YearInDecades, y = Runtime, group=YearInDecades)) + 
-  geom_boxplot(na.rm = TRUE) + 
+  geom_boxplot(na.rm = TRUE, outlier.shape=NA) + 
   labs(x = "Year", y = "Runtime (min)") +
-  coord_cartesian(ylim=c(0, 500))
+  coord_cartesian(ylim=c(0, 200))
 
 # Runtime vs. Budget
 ggplot(data = df2, aes(x=Budget, y = Runtime)) + 
@@ -158,7 +158,7 @@ Examine how the distribution of `Runtime` changes across genres for the top 10 m
 temp = melt(df2, measure.vars = Top10$Genre, id.vars = "Runtime")
 temp = temp[temp$value == 1, ]  
 
-ggplot(data = temp, aes(x=variable, y = Runtime, group = variable)) + 
+ggplot(data = temp, aes(x=variable, y = Runtime, group = variable, fill = variable)) + 
   geom_boxplot(na.rm = TRUE) + 
   ylim(-10, 250) +
   theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1))  +
@@ -173,7 +173,7 @@ Examine how the distribution of `Runtime` changes across genres for the top 10 m
 temp = melt(df2, measure.vars = Top10$Genre, id.vars = "Runtime")
 temp = temp[temp$value == 1, ]  
 
-ggplot(data = temp, aes(x=variable, y = Runtime, group = variable)) + 
+ggplot(data = temp, aes(x=variable, y = Runtime, group = variable, fill = variable)) + 
   geom_boxplot(na.rm = TRUE) + 
   ylim(-10, 250) +
   theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1))  +
@@ -275,8 +275,8 @@ ggplot(data = temp, aes(x=variable, y = Gross, group = variable)) +
 ```{r}
 # Investigate if Gross Revenue is related to Release Month
 ggplot(data = df2, aes(x=Released_Month, y=Gross,group=Released_Month)) +
-  geom_boxplot(na.rm = TRUE) +
-  scale_y_continuous(limits = c(-20000000, 700000000), 
+  geom_boxplot(na.rm = TRUE, outlier.shape = NA) +
+  scale_y_continuous(limits = c(-20000000, 480000000), 
                      breaks=seq(-20000000, 700000000, 100000000), 
                      labels = function(x) {paste0(x/1000000, 'M')}) +
   labs(x = "Release Month", y = "Gross", 
@@ -288,8 +288,8 @@ ggplot(data = df2, aes(x=Released_Month, y=Gross,group=Released_Month)) +
 ```{r}
 # Investigate if Gross Revenue is related to Release Month
 ggplot(data = df2, aes(x=Released_Month, y=Gross,group=Released_Month)) +
-  geom_boxplot(na.rm = TRUE) +
-  scale_y_continuous(limits = c(-20000000, 700000000), 
+  geom_boxplot(na.rm = TRUE, outlier.shape = NA) +
+  scale_y_continuous(limits = c(-20000000, 480000000), 
                      breaks=seq(-20000000, 700000000, 100000000), 
                      labels = function(x) {paste0(x/1000000, 'M')}) +
   labs(x = "Release Month", y = "Gross", 
@@ -344,7 +344,6 @@ print(paste0("Rows with nominations: ",
              sum(df2$nominations!=0, na.rm = TRUE)))
 ```
 
-
 **Analysis**: The awards strings were parsed using regular expression. There are two major steps. First, the most common pattern "X wins" and "X nominations" were addressed, the numbers were retrieved and stored in two columns, wins and nominations, in the dataframe. After that, the second most common pattern: "Won X and "Nominated for X" were addressed, and the numbers were added to the previous two coloumns. After the processing, 8830 rows have valid wins, and 9271 rows have valid nominations.
 
 ```{r}
@@ -378,7 +377,7 @@ There are several variables that describe ratings, including IMDb ratings (`imdb
 Investigate the pairwise relationships between these different descriptors using graphs.
 
 ```{r}
-# TODO: Illustrate how ratings from IMDb and Rotten Tomatoes are related
+# Illustrate how ratings from IMDb and Rotten Tomatoes are related
 
 # User rating of IMDB vs. Critics rating from Rotten Tomato
 ggplot(data = df2, aes(x = imdbRating, y = tomatoRating)) +
@@ -410,7 +409,7 @@ These ratings typically reflect the general appeal of the movie to the public or
 Study the relationship between ratings and awards using graphs (awards here refers to wins and/or nominations). 
 
 ```{r}
-# TODO: Show how ratings and awards are related
+# Show how ratings and awards are related
 DF = melt(df2, measure.vars = c("wins", "nominations"), 
             id.vars = c("imdbRating", "tomatoRating"))
 names(DF) = c("imdbRating","tomatoRating","Awards","AwardsNumber") 
@@ -487,7 +486,7 @@ ggplot(data = df2[!is.na(df2$ReviewNumberPattern),],
            y=Gross, 
            group = ReviewNumberPattern,
            fill = ReviewNumberPattern)) +
-  geom_boxplot(na.rm = TRUE) +
+  geom_boxplot(na.rm = TRUE, outlier.shape = NA) +
   scale_y_continuous(limits = c(-200000000, 1000000000)) +
   theme(legend.position="none")
 
@@ -495,7 +494,7 @@ ggplot(data = df2[!is.na(df2$ReviewNumberPattern),],
 ggplot(data = df2[!is.na(df2$ReviewNumberPattern),], 
        aes(x=ReviewNumberPattern, y=wins, 
            group = ReviewNumberPattern, fill = ReviewNumberPattern)) +
-  geom_boxplot(na.rm = TRUE) +
+  geom_boxplot(na.rm = TRUE, outlier.shape = NA) +
   scale_y_continuous(limits = c(0, 50)) +
   labs( y = "Awards Number") +
   theme(legend.position="none")

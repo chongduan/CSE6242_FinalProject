@@ -1,0 +1,506 @@
+---
+title: "Movies_project"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+author: "cduan34"
+date: "7/1/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data
+
+In this project, I will explore a dataset that contains information about movies, including ratings, budget, gross revenue and other attributes. It was prepared by Dr. Guy Lebanon, and here is his description of the dataset:
+
+> The file [`movies_merged`](https://s3.amazonaws.com/content.udacity-data.com/courses/gt-cs6242/project/movies_merged) contains a dataframe with the same name that has 40K rows and 39 columns. Each row represents a movie title and each column represents a descriptor such as `Title`, `Actors`, and `Budget`. I collected the data by querying IMDb’s API (see [www.omdbapi.com](http://www.omdbapi.com/)) and joining it with a separate dataset of movie budgets and gross earnings (unknown to you). The join key was the movie title. This data is available for personal use, but IMDb’s terms of service do not allow it to be used for commercial purposes or for creating a competing repository.
+
+# Objective
+
+The goal is to investigate the relationship between the movie descriptors and the box office success of movies, as represented by the variable `Gross`. This task is extremely important as it can help a studio decide which titles to fund for production, how much to bid on produced movies, when to release a title, how much to invest in marketing and PR, etc. This information is most useful before a title is released, but it is still very valuable after the movie is already released to the public (for example it can affect additional marketing spend or how much a studio should negotiate with on-demand streaming companies for “second window” streaming rights).
+
+# Setup
+
+## Load data
+Make sure you've downloaded the [`movies_merged`](https://s3.amazonaws.com/content.udacity-data.com/courses/gt-cs6242/project/movies_merged) file and it is in the current working directory. Now load it into memory:
+
+```{r}
+load('movies_merged')
+cat("Dataset has", dim(movies_merged)[1], "rows and", 
+    dim(movies_merged)[2], "columns", end="\n", file="")
+```
+
+This creates an object of the same name (`movies_merged`). For convenience, you can copy it to `df` and start using it:
+
+```{r}
+df = movies_merged
+cat("Column names:", end="\n", file="")
+colnames(df)
+```
+
+## Load R packages
+
+Load any R packages that we will need to use
+
+```{r}
+library(ggplot2)
+library(GGally)
+# install.packages("ggpubr")
+# install.packages("tm")
+# install.packages("magrittr")
+# install.packages("NLP")
+library(ggpubr)
+library(tm)
+library(reshape2)
+```
+
+# Tasks
+
+## 1. Remove non-movie rows
+The variable `Type` captures whether the row is a movie, a TV series, or a game. Remove all rows from `df` that do not correspond to movies.
+
+```{r}
+# Remove all rows from df that do not correspond to movies
+df2 <- df[df$Type == "movie",]
+dim(df2)
+```
+
+## 2. Process `Runtime` column
+
+The variable `Runtime` represents the length of the title as a string. Write R code to convert it to a numeric value (in minutes) and replace `df$Runtime` with the new numeric column.
+
+```{r}
+# Replace df$Runtime with a numeric column containing the runtime in minutes
+df2$Runtime = sapply(df2$Runtime, function(x) 
+  ifelse(x == "N/A", NA, as.numeric(unlist(strsplit(x, " "))[[1]])))
+```
+
+Now investigate the distribution of `Runtime` values and how it changes over years (variable `Year`, which you can bucket into decades) and in relation to the budget (variable `Budget`). 
+
+```{r}
+# Investigate the distribution of Runtime values and how it varies by Year and Budget
+
+# Distribution of runtime
+ggplot(data = df2, aes(x=Runtime)) +
+  geom_histogram(bins = 50, na.rm = TRUE)  + 
+  scale_x_log10() +
+  labs(x = "Runtime (min)") +
+  annotation_logticks() +
+  labs(y = "Count")
+
+# Runtime vs. Year
+# bucket Year into Decades
+df2$YearInDecades = df2$Year - df2$Year %% 10 
+ggplot(data = df2, aes(x=YearInDecades, y = Runtime, group=YearInDecades)) + 
+  geom_boxplot(na.rm = TRUE) + 
+  labs(x = "Year", y = "Runtime (min)") +
+  coord_cartesian(ylim=c(0, 500))
+
+# Runtime vs. Budget
+ggplot(data = df2, aes(x=Budget, y = Runtime)) + 
+  geom_point(na.rm = TRUE) + geom_smooth(method=lm, na.rm = TRUE) + 
+  stat_cor(method = "pearson", label.x = 200000000, 
+           label.y = 750, na.rm = TRUE) + # Need the ggpubr library
+  labs(x = "Budget (million)", y = "Runtime (min)") +
+  scale_x_continuous(breaks=seq(0, 450000000, 100000000), 
+                     labels = function(x){paste0(x/1000000, 'M')})
+
+```
+
+**Analysis**: 1) Overall, the distribution of majority of movie runtime appoximate a normal distribution centered at ~100 mins. However, there is a substantial negative tail of movies with much shorter runtime. 2) Regarding the relationship between runtime and year, the boxplot shows that the runtime increases in the begining (roughly from 1880 to 1950), and plateaus starting from the 1960s with median runtime around 100 mins. Also, there are large variance (IQR) in movie runtime from 1910 - 1940, after that, the movie runtimes tend to be really close to be around 90-100 mins. 3) Regarding the relationship between runtime and budget, the scatter plot demonstrates a weak positive correllation between runtime and budget.
+
+## 3. Encode `Genre` column
+
+The column `Genre` represents a list of genres associated with the movie in a string format. Now parse each text string into a binary vector with 1s representing the presence of a genre and 0s the absence, and add it to the dataframe as additional columns. Then remove the original `Genre` column.
+
+```{r}
+# Replace Genre with a collection of binary columns
+# Need the tm package
+genre_source = VectorSource(df2$Genre)
+genre_corpus = VCorpus(genre_source)
+genre_corpus <- tm_map(genre_corpus, removePunctuation)
+genre_dtm = DocumentTermMatrix(genre_corpus)
+genre_m <- as.matrix(genre_dtm)
+
+# Combine original df3 and the genre_m, and remove original Genre column
+df2 = cbind(df2, genre_m)
+df2[,"Genre"] = NULL # remove the original Genre column
+```
+
+Plot the relative proportions of movies having the top 10 most common genres.
+
+```{r}
+# Select movies from top 10 most common genres and plot their relative proportions
+MovieCountByGenre = apply(df2[,40:67], 2, sum)
+MovieCountByGenre = sort(MovieCountByGenre, decreasing = TRUE)
+Top10 = data.frame(Genre = names(MovieCountByGenre[1:10]), 
+                   Count = unname(MovieCountByGenre[1:10]) )
+ggplot(data = Top10, aes(x=Genre,y= Count, fill = Genre )) + 
+  geom_bar(width = 1, stat = "identity") +
+  labs(x = "", y = "Relative proportion", title = 
+         "Top 10 Most Common Genres \n") +
+  scale_y_continuous(breaks=c(0, sum(Top10$Count)/10, sum(Top10$Count)/5), 
+                     labels = function(x) 
+                       {paste0(x/sum(Top10$Count)*100, '%')}) +
+  theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1)) 
+  
+```
+
+Examine how the distribution of `Runtime` changes across genres for the top 10 most common genres.
+
+```{r}
+# Plot Runtime distribution for top 10 most common genres
+temp = melt(df2, measure.vars = Top10$Genre, id.vars = "Runtime")
+temp = temp[temp$value == 1, ]  
+
+ggplot(data = temp, aes(x=variable, y = Runtime, group = variable)) + 
+  geom_boxplot(na.rm = TRUE) + 
+  ylim(-10, 250) +
+  theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1))  +
+  labs(x = "Genre", y = "Runtime (min)", title = 
+         "Runtime Distribution of Top 10 Most Common Genres \n")
+```
+
+Examine how the distribution of `Runtime` changes across genres for the top 10 most common genres.
+
+```{r}
+# Plot Runtime distribution for top 10 most common genres
+temp = melt(df2, measure.vars = Top10$Genre, id.vars = "Runtime")
+temp = temp[temp$value == 1, ]  
+
+ggplot(data = temp, aes(x=variable, y = Runtime, group = variable)) + 
+  geom_boxplot(na.rm = TRUE) + 
+  ylim(-10, 250) +
+  theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1))  +
+  labs(x = "Genre", y = "Runtime (min)", title = 
+         "Runtime Distribution of Top 10 Most Common Genres \n")
+```
+
+**Analysis**: Drame, Romance, Action, Crime, Thriller, and Adventure movies have similar runtimes. As expected, movies of short short genre have relative short runtime (median ~ 15 mins). Also, animation movies have short runtime, but with outliers of long runtime. Documentary movies have the larget variance (IQR) in runtime across the top 10 movie genres. 
+
+## 4. Eliminate mismatched rows
+
+The dataframe was put together by merging two different sources of data and it is possible that the merging process was inaccurate in some cases (the merge was done based on movie title, but there are cases of different movies with the same title). There are 3 columns that contain date information: `Year` (numeric year), `Date` (numeric year), and `Released` (string representation of the release date).
+
+Find and remove all rows where a merge error occurred based on a mismatch between these variables. 
+
+```{r}
+# Remove rows with Year/Date/Released mismatch
+
+# Parse the Released column
+df2$Released_Year = sapply(1:nrow(df2), function(x) as.numeric(
+  strsplit(as.character(df2$Released[x]),"-")[[1]][1]))
+
+df2$Released_Month = sapply(1:nrow(df2), function(x) as.numeric(
+  strsplit(as.character(df2$Released[x]),"-")[[1]][2]))
+
+# Mismatch rows
+mismatch_rows = sapply(1:nrow(df2), function(x) 
+  (df2$Year[x] != df2$Date[x] || df2$Year[x] != df2$Released_Year[x]))
+  
+# Do not remove the NA rows
+mismatch_rows[is.na(mismatch_rows)] = FALSE
+
+### Avoid removing more than 10% of the rows that have a `Gross` value present.
+# Maximum rows with Gross present can be removed
+Max_N_removal = round(sum(!is.na(df2$Gross)) * 0.1) 
+
+# Mismatch and Gross present rows
+mismatch_gross_rows = sapply(1:nrow(df2), 
+                             function(x) 
+  mismatch_rows[x] && (!is.na(df2$Gross[x])))
+
+set.seed(5)
+if (sum(mismatch_gross_rows) > Max_N_removal) {
+  # Random select some rows, and do not remove 
+  # them so that no more 10% rows with gross 
+  # present will not be removed 
+  keepRows = sample(which(mismatch_gross_rows %in% TRUE), 
+                    sum(mismatch_gross_rows) - Max_N_removal, 
+                    replace = FALSE)
+  mismatch_rows[keepRows] = FALSE
+}
+
+# Select only matched rows
+df2 = df2[!mismatch_rows,]
+```
+
+**Analysis**: Removal logic: 1) The Released column was parsed to retrieve the year; 2) Identify rows with mismatch between Year, Date, and Year(from Released); 3) Treat all NA as match; 4) Calculate the maximum number of rows with Gross present could be removed; 5) Identify and calculate the number of mismatch rows with Gross present; 6) If the number of step 5 is smaller than step 4, do nothing. Otherwise randomly sample n rows from step 5 and treat them as match(i.e., do not remove them). n is the difference between the numbers in step 4 and 5. There are 34587 rows remaining in the resulting dataframe.
+
+## 5. Explore `Gross` revenue
+
+For the commercial success of a movie, production houses want to maximize Gross revenue. Investigate if Gross revenue is related to Budget, Runtime or Genre in any way.
+
+```{r}
+# Investigate if Gross Revenue is related to Budget, Runtime or Genre
+
+# Separate movie by runtime (less than 40mins --> short, otherwise long)
+df2$Duration[df2$Runtime<40] = "short"
+df2$Duration[df2$Runtime>=40] = "long"
+
+# Gross vs. Budget/Runtime(short vs. long)
+ggplot(data = df2, aes(x=Budget, y=Gross)) +
+  geom_point(na.rm = TRUE) + 
+  geom_smooth(method=lm, na.rm = TRUE) + 
+  stat_cor(method = "pearson", label.x = 200000000, 
+           label.y = 2500000000, na.rm = TRUE) +
+  facet_grid(. ~ Duration) +
+  scale_x_continuous(breaks=seq(0, 450000000, 100000000), 
+                     labels = function(x){paste0(x/1000000, 'M')}) +
+  scale_y_continuous(breaks=seq(-200000000, 3000000000, 1000000000), 
+                     labels = function(x){paste0(x/1000000, 'M')}) +
+  labs(x = "Budget (million)", y = "Gross (million)")
+
+# Gross vs. Genre
+temp = melt(df2, measure.vars = Top10$Genre, 
+             id.vars = c("Gross", "Runtime", "Budget"))
+temp = temp[temp$value == 1, ]  
+
+ggplot(data = temp, aes(x=variable, y = Gross, group = variable)) + 
+  geom_boxplot(na.rm = TRUE) + 
+  scale_y_continuous(limits = c(-20000000, 700000000), 
+                     breaks=seq(-20000000, 700000000, 100000000), 
+                     labels = function(x){paste0(x/1000000, 'M')}) +
+  labs(x = "Genre", y = "Gross", 
+       title = "Gross Distribution of Top 10 Most Common Genres \n")
+```
+
+**Analysis**: 1) Strong positve correllation between budget and gross, indcating movies with higher budget is likely to have higher gross. This is especially true true for movies with more than 40 mins runtime (i.e., long). Also, long duration movies demonsrates higher slope than the short ones on the scatter plot, indicating a better gain. However, note that there is very limited points/data for the short movies cases. Very weak correlation between runtime and gross. 2) Comparing Gross against genres, , action, adventure and animation have higher median gross than other genres. 
+
+```{r}
+# Investigate if Gross Revenue is related to Release Month
+ggplot(data = df2, aes(x=Released_Month, y=Gross,group=Released_Month)) +
+  geom_boxplot(na.rm = TRUE) +
+  scale_y_continuous(limits = c(-20000000, 700000000), 
+                     breaks=seq(-20000000, 700000000, 100000000), 
+                     labels = function(x) {paste0(x/1000000, 'M')}) +
+  labs(x = "Release Month", y = "Gross", 
+       title = "Gross Distribution of Release Month \n")
+```
+
+**Analysis**: 1) Strong positve correllation between budget and gross, indcating movies with higher budget is likely to have higher gross. This is especially true true for movies with more than 40 mins runtime (i.e., long). Also, long duration movies demonsrates higher slope than the short ones on the scatter plot, indicating a better gain. However, note that there is very limited points/data for the short movies cases. Very weak correlation between runtime and gross. 2) Comparing Gross against genres, , action, adventure and animation have higher median gross than other genres. 
+
+```{r}
+# Investigate if Gross Revenue is related to Release Month
+ggplot(data = df2, aes(x=Released_Month, y=Gross,group=Released_Month)) +
+  geom_boxplot(na.rm = TRUE) +
+  scale_y_continuous(limits = c(-20000000, 700000000), 
+                     breaks=seq(-20000000, 700000000, 100000000), 
+                     labels = function(x) {paste0(x/1000000, 'M')}) +
+  labs(x = "Release Month", y = "Gross", 
+       title = "Gross Distribution of Release Month \n")
+```
+
+
+## 6. Process `Awards` column
+
+The variable `Awards` describes nominations and awards in text format. Convert it to 2 numeric columns, the first capturing the number of wins, and the second capturing nominations. Replace the `Awards` column with these new columns, and then study the relationship of `Gross` revenue with respect to them.
+
+```{r}
+# Convert Awards to 2 numeric columns: wins and nominations
+
+# Deal with the most common "XX win" or "XX nomination" pattern
+# set other cases to 0
+pattern = "[0-9]* win"
+Wins = sapply(1:nrow(df2), function(x) regmatches(
+  df2$Awards[x],regexpr(pattern, df2$Awards[x])))
+df2$wins = sapply(1:nrow(df2), function(x) ifelse(
+  length(Wins[[x]]), as.numeric(strsplit(Wins[[x]]," ")[[1]][1]), 0))
+
+pattern = "[0-9]* nomina"
+Nominations = sapply(1:nrow(df2), function(x) regmatches(
+  df2$Awards[x], regexpr(pattern, df2$Awards[x])))
+
+df2$nominations = sapply(1:nrow(df2), function(x) ifelse(
+  length(Nominations[[x]]), as.numeric(
+    strsplit(Nominations[[x]]," ")[[1]][1]), 0))
+
+# Deal with the 2nd most common "Won xx" or "Nominated for xx" pattern
+# set other cases to 0
+pattern = "Won [0-9]*"
+Wons = sapply(1:nrow(df2), function(x) 
+  regmatches(df2$Awards[x], regexpr(pattern, df2$Awards[x])))
+df2$wins = df2$wins + sapply(1:nrow(df2), function(x) 
+  ifelse(length(Wons[[x]]), 
+         as.numeric(strsplit(Wons[[x]]," ")[[1]][2]), 0))
+
+pattern = "Nominated for [0-9]*"
+Nominated = sapply(1:nrow(df2), function(x) regmatches(
+  df2$Awards[x], regexpr(pattern, df2$Awards[x])))
+
+df2$nominations = df2$nominations + 
+  sapply(1:nrow(df2), function(x) ifelse(length(Nominated[[x]]), 
+    as.numeric(strsplit(Nominated[[x]]," ")[[1]][3]), 0))
+
+# Results
+print(paste0("Rows with valid wins: ", 
+             sum(df2$wins!=0, na.rm = TRUE)))
+print(paste0("Rows with nominations: ", 
+             sum(df2$nominations!=0, na.rm = TRUE)))
+```
+
+
+**Analysis**: The awards strings were parsed using regular expression. There are two major steps. First, the most common pattern "X wins" and "X nominations" were addressed, the numbers were retrieved and stored in two columns, wins and nominations, in the dataframe. After that, the second most common pattern: "Won X and "Nominated for X" were addressed, and the numbers were added to the previous two coloumns. After the processing, 8830 rows have valid wins, and 9271 rows have valid nominations.
+
+```{r}
+# Plot Gross revenue against wins and nominations
+
+# First set 0 win or nomination to NA
+df2$wins[df2$wins==0] = NA
+df2$nominations[df2$nominations==0] = NA
+
+# Melt wins and nominations together
+temp = melt(df2, measure.vars = c("wins", "nominations"), 
+            id.vars = c("Gross"))
+
+ggplot(data = temp, aes(x=value, y=Gross),na.rm = TRUE) +
+  geom_point(na.rm = TRUE) +
+  geom_smooth(method = lm, na.rm = TRUE) +
+  stat_cor(method = "pearson", label.x = 150, 
+           label.y = 2000000000, na.rm = TRUE) +
+  facet_grid(.~ variable) +
+  labs(x="Number of wins/nominations")
+```
+
+**Q**: How does the gross revenue vary by number of awards won and nominations received?
+
+**A**: In general, there are positive correlation between wins/nominations and gross revenue, indicating movies with more awards or nominations are likely to have higher gross revenue. Nevertheless, these correllations are not very strong.
+
+## 7. Movie ratings from IMDb and Rotten Tomatoes
+
+There are several variables that describe ratings, including IMDb ratings (`imdbRating` represents average user ratings and `imdbVotes` represents the number of user ratings), and multiple Rotten Tomatoes ratings (represented by several variables pre-fixed by `tomato`). Read up on such ratings on the web (for example [rottentomatoes.com/about](https://www.rottentomatoes.com/about) and [ www.imdb.com/help/show_leaf?votestopfaq](http:// www.imdb.com/help/show_leaf?votestopfaq)).
+
+Investigate the pairwise relationships between these different descriptors using graphs.
+
+```{r}
+# TODO: Illustrate how ratings from IMDb and Rotten Tomatoes are related
+
+# User rating of IMDB vs. Critics rating from Rotten Tomato
+ggplot(data = df2, aes(x = imdbRating, y = tomatoRating)) +
+  geom_point(na.rm = TRUE) +
+  geom_smooth(method = lm, na.rm = TRUE) +
+  labs(x="IMDB User Rating", y="Totten Tomatoes Critics Rating") +
+  stat_cor(method = "pearson", label.x = 2, label.y = 8.5, na.rm = TRUE)
+
+temp = melt(data = df2, id.vars = "Title", measure.vars = c("imdbRating", "tomatoRating"))
+temp = na.omit(temp)
+ggplot(data = na.omit(temp), aes(sample = value)) +
+  stat_qq() +
+  facet_grid(.~variable)
+
+
+# User rating of IMDB vs. User rating from Rotten Tomato
+DF = df2[,c("imdbRating", "tomatoUserMeter", "tomatoUserRating")]
+ggpairs(na.omit(DF))
+```
+
+**Q**: Comment on the similarities and differences between the user ratings of IMDb and the critics ratings of Rotten Tomatoes.
+
+**A**: In general, user rating of IMDB and the cirtics ratings of Rotten Tomatoes are similar in a way that they have a strong positive correlation (r = 0.8). One difference is that the tomato critics rating tends to be slightly lower than the user rating of IMDB. Also, the QQPlot demonstrates that the critics ratings of Rotten Tomatoes more closely approximate a shifted Gaussian distribution, while the imdb ratings are closer to a non-linear S-shape.
+
+## 8. Ratings and awards
+
+These ratings typically reflect the general appeal of the movie to the public or gather opinions from a larger body of critics. Whereas awards are given by professional societies that may evaluate a movie on specific attributes, such as artistic performance, screenplay, sound design, etc.
+
+Study the relationship between ratings and awards using graphs (awards here refers to wins and/or nominations). 
+
+```{r}
+# TODO: Show how ratings and awards are related
+DF = melt(df2, measure.vars = c("wins", "nominations"), 
+            id.vars = c("imdbRating", "tomatoRating"))
+names(DF) = c("imdbRating","tomatoRating","Awards","AwardsNumber") 
+DF2 = melt(DF, measure.vars = c("imdbRating","tomatoRating"), 
+           id.vars = c("Awards","AwardsNumber"))
+names(DF2) = c("Awards","AwardsNumber","RatingSource","Rating") 
+
+ggplot(na.omit(DF2), aes(x = Rating, y = AwardsNumber )) +
+  geom_point() +
+  geom_smooth(method = "auto" , na.rm = TRUE, color = "red") +
+  facet_grid(Awards ~ RatingSource) +
+  stat_cor(method = "pearson", label.x = 2.5, label.y = 200)
+```
+
+**Analysis**: Both user rating from IMDB and critics rating from tomato are not very good in terms of predicting the success of a moive (defined by wining awards). The correlations are quite weak.
+
+## 9. Other insights
+
+```{r}
+# We have studied the Gross vs. Genre/Released_Month previously
+# Here we will study Budget vs. Genre/Released_month
+
+# Expected insight #1
+temp = melt(df2, measure.vars = Top10$Genre, 
+              id.vars = c("Released_Month", "YearInDecades", "Budget"))
+temp = temp[temp$value==1,]
+
+ggplot(data = temp, aes(x = variable, y=Budget, fill=variable)) +
+  geom_boxplot(na.rm = TRUE) +
+  labs(x="Genre") +
+  scale_y_continuous(limits = c(-20000000, 200000000)) +
+  theme(axis.text.x=element_text(angle=90,hjust=1, vjust = 0.5), 
+        legend.position = "none")
+
+# Expected insight #2
+ggplot(data = temp, aes(x = Released_Month, y=Budget, 
+                          group = Released_Month, fill = Released_Month))  + 
+  geom_boxplot(na.rm = TRUE) +
+  scale_y_continuous(limits = c(-20000000, 200000000)) +
+  theme(legend.position = "none")
+
+```
+
+**Q**: Expected insight #1.
+
+**A**: We have compared Gross vs. Top 10 Genre previously. Here we consider Budget vs Top 10 Genres. It's evident that action, adventure and animation are the top 3 genre with highest median budget. This makes sense because it is reasonable to assume action or adventure movies will have higher cost. However, the animation movie has high budget is sort of unexpected though.
+
+
+**Q**: Expected insight #2.
+
+**A**: Similarly, if we compare Budget against the released month, one can see that movies that are targeted for the summer season or the holiday season (Nov & Dec) in general have higher budget. This is expected because more people will go to cinema during those seasons, and movies released during those reasons will have higher gross revenue as shown in the previous section. 
+
+
+## 10. Unexpected insight
+
+```{r}
+# No. of User rating of IMDB vs. No. of User rating from Tomato
+ggplot(data = df2, aes(x = imdbVotes, y = tomatoUserReviews)) +
+  geom_point(na.rm = TRUE) +
+  scale_x_log10()
+
+# Study on the movies with outlier tomatoUser review number
+idx1 = df2$tomatoUserReviews>20000000
+idx1[is.na(idx1)] = FALSE
+df2$ReviewNumberPattern[idx1] = "Outlier (Extremely High Review Number)"
+
+idx2 = df2$tomatoUserReviews<20000000
+idx2[is.na(idx2)] = FALSE
+df2$ReviewNumberPattern[idx2] = "Standard"
+
+# Study gross revenue
+ggplot(data = df2[!is.na(df2$ReviewNumberPattern),], 
+       aes(x=ReviewNumberPattern, 
+           y=Gross, 
+           group = ReviewNumberPattern,
+           fill = ReviewNumberPattern)) +
+  geom_boxplot(na.rm = TRUE) +
+  scale_y_continuous(limits = c(-200000000, 1000000000)) +
+  theme(legend.position="none")
+
+# Study awards 
+ggplot(data = df2[!is.na(df2$ReviewNumberPattern),], 
+       aes(x=ReviewNumberPattern, y=wins, 
+           group = ReviewNumberPattern, fill = ReviewNumberPattern)) +
+  geom_boxplot(na.rm = TRUE) +
+  scale_y_continuous(limits = c(0, 50)) +
+  labs( y = "Awards Number") +
+  theme(legend.position="none")
+```
+
+**Q**: Unexpected insight.
+
+**A**: When comparing the number of user votes/reviews from either IMDB or Rottentomato, one would expect they should have similar distribution since they are both from the general public. Nevertheless, there is an evident bi-modal distribution for the tomato user reviews, indicating that there are some movies with extremely high number of reviews than the others at Rotten Tomato. I compared the Gross avenue and number of awards won by those "Outlier" movies, and I found that those movies have much higher avenue and have won more awards than the others. These two reason may explain why there are so many reviews for those movies at Rotten Tomato.

@@ -163,7 +163,8 @@ ggplot(data = temp, aes(x=variable, y = Runtime, group = variable, fill = variab
   ylim(-10, 250) +
   theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1))  +
   labs(x = "Genre", y = "Runtime (min)", title = 
-         "Runtime Distribution of Top 10 Most Common Genres \n")
+         "Runtime Distribution of Top 10 Most Common Genres \n") +
+  theme(legend.position="none")
 ```
 
 Examine how the distribution of `Runtime` changes across genres for the top 10 most common genres.
@@ -178,7 +179,8 @@ ggplot(data = temp, aes(x=variable, y = Runtime, group = variable, fill = variab
   ylim(-10, 250) +
   theme(axis.text.x=element_text(angle = 90, vjust=0.5, hjust=1))  +
   labs(x = "Genre", y = "Runtime (min)", title = 
-         "Runtime Distribution of Top 10 Most Common Genres \n")
+         "Runtime Distribution of Top 10 Most Common Genres \n") +
+  theme(legend.position="none")
 ```
 
 **Analysis**: Drame, Romance, Action, Crime, Thriller, and Adventure movies have similar runtimes. As expected, movies of short short genre have relative short runtime (median ~ 15 mins). Also, animation movies have short runtime, but with outliers of long runtime. Documentary movies have the larget variance (IQR) in runtime across the top 10 movie genres. 
@@ -261,13 +263,14 @@ temp = melt(df2, measure.vars = Top10$Genre,
              id.vars = c("Gross", "Runtime", "Budget"))
 temp = temp[temp$value == 1, ]  
 
-ggplot(data = temp, aes(x=variable, y = Gross, group = variable)) + 
+ggplot(data = temp, aes(x=variable, y = Gross, group = variable, fill = variable)) + 
   geom_boxplot(na.rm = TRUE) + 
   scale_y_continuous(limits = c(-20000000, 700000000), 
                      breaks=seq(-20000000, 700000000, 100000000), 
                      labels = function(x){paste0(x/1000000, 'M')}) +
   labs(x = "Genre", y = "Gross", 
-       title = "Gross Distribution of Top 10 Most Common Genres \n")
+       title = "Gross Distribution of Top 10 Most Common Genres \n") +
+  theme(legend.position = "none")
 ```
 
 **Analysis**: 1) Strong positve correllation between budget and gross, indcating movies with higher budget is likely to have higher gross. This is especially true true for movies with more than 40 mins runtime (i.e., long). Also, long duration movies demonsrates higher slope than the short ones on the scatter plot, indicating a better gain. However, note that there is very limited points/data for the short movies cases. Very weak correlation between runtime and gross. 2) Comparing Gross against genres, , action, adventure and animation have higher median gross than other genres. 
@@ -498,8 +501,7 @@ ggplot(data = df2[!is.na(df2$ReviewNumberPattern),],
   scale_y_continuous(limits = c(0, 50)) +
   labs( y = "Awards Number") +
   theme(legend.position="none")
+
 ```
 
-**Q**: Unexpected insight.
-
-**A**: When comparing the number of user votes/reviews from either IMDB or Rottentomato, one would expect they should have similar distribution since they are both from the general public. Nevertheless, there is an evident bi-modal distribution for the tomato user reviews, indicating that there are some movies with extremely high number of reviews than the others at Rotten Tomato. I compared the Gross avenue and number of awards won by those "Outlier" movies, and I found that those movies have much higher avenue and have won more awards than the others. These two reason may explain why there are so many reviews for those movies at Rotten Tomato.
+**Analysis**: When comparing the number of user votes/reviews from either IMDB or Rottentomato, one would expect they should have similar distribution since they are both from the general public. Nevertheless, there is an evident bi-modal distribution for the tomato user reviews, indicating that there are some movies with extremely high number of reviews than the others at Rotten Tomato. I compared the Gross avenue and number of awards won by those "Outlier" movies, and I found that those movies have much higher avenue and have won more awards than the others. These two reason may explain why there are so many reviews for those movies at Rotten Tomato.
